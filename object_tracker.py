@@ -1,7 +1,6 @@
 import os
 # comment out below line to enable tensorflow logging outputs
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-import time
 import tensorflow as tf
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 if len(physical_devices) > 0:
@@ -23,6 +22,7 @@ from deep_sort import preprocessing, nn_matching
 from deep_sort.detection import Detection
 from deep_sort.tracker import Tracker
 from tools import generate_detections as gdet
+
 flags.DEFINE_string('framework', 'tf', '(tf, tflite, trt')
 flags.DEFINE_string('weights', './checkpoints/yolov4-416',
                     'path to weights file')
@@ -30,13 +30,9 @@ flags.DEFINE_integer('size', 416, 'resize images to')
 flags.DEFINE_boolean('tiny', False, 'yolo or yolo-tiny')
 flags.DEFINE_string('model', 'yolov4', 'yolov3 or yolov4')
 flags.DEFINE_string('video', './data/video/test.mp4', 'path to input video or set to 0 for webcam')
-flags.DEFINE_string('output', None, 'path to output video')
-flags.DEFINE_string('output_format', 'XVID', 'codec used in VideoWriter when saving video to file')
 flags.DEFINE_float('iou', 0.45, 'iou threshold')
 flags.DEFINE_float('score', 0.50, 'score threshold')
-flags.DEFINE_boolean('dont_show', False, 'dont show video output')
 flags.DEFINE_boolean('info', False, 'show detailed info of tracked objects')
-flags.DEFINE_boolean('count', False, 'count objects being tracked on screen')
 
 def main(_argv):
     # Definition of the parameters
@@ -79,17 +75,6 @@ def main(_argv):
     except:
         vid = cv2.VideoCapture(video_path)
 
-    out = None
-
-    # get video ready to save locally if flag is set
-    if FLAGS.output:
-        # by default VideoCapture returns float instead of int
-        width = int(vid.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fps = int(vid.get(cv2.CAP_PROP_FPS))
-        codec = cv2.VideoWriter_fourcc(*FLAGS.output_format)
-        out = cv2.VideoWriter(FLAGS.output, codec, fps, (width, height))
-
     frame_num = 0
     # while video is running
     while True:
@@ -106,7 +91,6 @@ def main(_argv):
         image_data = cv2.resize(frame, (input_size, input_size))
         image_data = image_data / 255.
         image_data = image_data[np.newaxis, ...].astype(np.float32)
-        start_time = time.time()
 
         # run detections on tflite if flag is set
         if FLAGS.framework == 'tflite':
@@ -156,11 +140,8 @@ def main(_argv):
         # read in all class names from config
         class_names = utils.read_class_names(cfg.YOLO.CLASSES)
 
-        # by default allow all classes in .names file
-        allowed_classes = list(class_names.values())
-        
         # custom allowed classes (uncomment line below to customize tracker for only people)
-        #allowed_classes = ['person']
+        allowed_classes = ['car','truck']
 
         # loop through objects and use class index to get class name, allow only classes in allowed_classes list
         names = []
@@ -173,10 +154,6 @@ def main(_argv):
             else:
                 names.append(class_name)
         names = np.array(names)
-        count = len(names)
-        if FLAGS.count:
-            cv2.putText(frame, "Objects being tracked: {}".format(count), (5, 35), cv2.FONT_HERSHEY_COMPLEX_SMALL, 2, (0, 255, 0), 2)
-            print("Objects being tracked: {}".format(count))
         # delete detections that are not in allowed_classes
         bboxes = np.delete(bboxes, deleted_indx, axis=0)
         scores = np.delete(scores, deleted_indx, axis=0)
@@ -212,26 +189,11 @@ def main(_argv):
             color = [i * 255 for i in color]
             cv2.rectangle(frame, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])), color, 2)
             cv2.rectangle(frame, (int(bbox[0]), int(bbox[1]-30)), (int(bbox[0])+(len(class_name)+len(str(track.track_id)))*17, int(bbox[1])), color, -1)
-            cv2.putText(frame, class_name + "-" + str(track.track_id),(int(bbox[0]), int(bbox[1]-10)),0, 0.75, (255,255,255),2)
+            cv2.putText(frame,"-" + str(track.track_id),(int(bbox[0]), int(bbox[1]-10)),0, 0.75, (255,255,255),2)
 
         # if enable info flag then print details about each track
             if FLAGS.info:
                 print("Tracker ID: {}, Class: {},  BBox Coords (xmin, ymin, xmax, ymax): {}".format(str(track.track_id), class_name, (int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]))))
-
-        # calculate frames per second of running detections
-        fps = 1.0 / (time.time() - start_time)
-        print("FPS: %.2f" % fps)
-        result = np.asarray(frame)
-        result = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        
-        if not FLAGS.dont_show:
-            cv2.imshow("Output Video", result)
-        
-        # if output flag is set, save video file
-        if FLAGS.output:
-            out.write(result)
-        if cv2.waitKey(1) & 0xFF == ord('q'): break
-    cv2.destroyAllWindows()
 
 if __name__ == '__main__':
     try:
